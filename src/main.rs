@@ -26,6 +26,8 @@ fn main() -> io::Result<()> {
     let mut query_change = false;
     let ansi_color_len = "\x1b[1;31m\x1b[0m".len();
 
+    let mut selected_index: usize = 0;
+
     let mut matches: Vec<(usize, (String, u32))> = all_lines
         .iter()
         .enumerate()
@@ -57,6 +59,7 @@ fn main() -> io::Result<()> {
                 .collect();
 
             query_change = false;
+            selected_index = 0;
         }
 
         matches.sort_by_key(|(_num, val)| val.1);
@@ -67,7 +70,8 @@ fn main() -> io::Result<()> {
             .map_or(String::new(), |n| n.to_string())
             .len();
 
-        for (num, (line, _score)) in matches.iter() {
+        for (i, (num, (line, _score))) in matches.iter().enumerate() {
+            let prefix = if i == selected_index { "-> " } else { "   " };
             let display_line =
                 if line.len() - ansi_color_len * query.len() > (width as usize).saturating_sub(3) {
                     line.chars()
@@ -79,7 +83,8 @@ fn main() -> io::Result<()> {
                     line.to_string() + "\x1b[0m"
                 };
             println!(
-                "{:>width$}: {}",
+                "{}{:>width$}: {}",
+                prefix,
                 num + 1,
                 display_line,
                 width = max_line_len
@@ -104,6 +109,23 @@ fn main() -> io::Result<()> {
                 KeyCode::Backspace => {
                     query_change = true;
                     query.pop();
+                }
+                KeyCode::Up => {
+                    if selected_index > 0 {
+                        selected_index = selected_index.saturating_sub(1);
+                    }
+                }
+                KeyCode::Down => {
+                    if selected_index + 1 < matches.len() {
+                        selected_index += 1;
+                    }
+                }
+                KeyCode::Enter => {
+                    if !matches.is_empty() {
+                        let (_line_num, (line, _score)) = &matches[selected_index];
+                        println!("{}", line);
+                        break 'main_loop;
+                    }
                 }
                 _ => {}
             }
