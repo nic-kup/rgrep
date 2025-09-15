@@ -15,7 +15,7 @@ fn main() -> io::Result<()> {
     let (_width, height) = size()?;
 
     let filename = std::env::args().nth(1).expect("Missing <filename>");
-    execute!(io::stdout(), MoveToColumn(0))?;
+    execute!(io::stderr(), MoveToColumn(0))?;
 
     let contents = fs::read_to_string(filename)?;
     let all_lines: Vec<&str> = contents.lines().collect();
@@ -40,14 +40,14 @@ fn main() -> io::Result<()> {
         let (width, height) = size()?;
         // clear and reset cursor
         // TODO move cursor to after query
-        execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0))?;
+        execute!(io::stderr(), Clear(ClearType::All), MoveTo(0, 0))?;
 
-        print!("{}", query);
-        execute!(io::stdout(), MoveToColumn(0), MoveDown(1))?;
-        println!("Press 'Esc' to quit | {} | {}", width, ansi_color_len);
-        execute!(io::stdout(), MoveToColumn(0))?;
-        println!("{}", "-".repeat(width as usize));
-        execute!(io::stdout(), MoveToColumn(0))?;
+        eprint!("{}", query);
+        execute!(io::stderr(), MoveToColumn(0), MoveDown(1))?;
+        eprintln!("Press 'Esc' to quit | {} | {}", width, ansi_color_len);
+        execute!(io::stderr(), MoveToColumn(0))?;
+        eprintln!("{}", "-".repeat(width as usize));
+        execute!(io::stderr(), MoveToColumn(0))?;
 
         if query_change {
             matches = all_lines
@@ -82,19 +82,19 @@ fn main() -> io::Result<()> {
                 } else {
                     line.to_string() + "\x1b[0m"
                 };
-            println!(
+            eprintln!(
                 "{}{:>width$}: {}",
                 prefix,
                 num + 1,
                 display_line,
                 width = max_line_len
             );
-            execute!(io::stdout(), MoveToColumn(0))?;
+            execute!(io::stderr(), MoveToColumn(0))?;
         }
 
         if matches.is_empty() && !query.is_empty() {
-            println!("No matches found");
-            execute!(io::stdout(), MoveToColumn(0))?;
+            eprintln!("No matches found");
+            execute!(io::stderr(), MoveToColumn(0))?;
         }
 
         if let Event::Key(KeyEvent { code, .. }) = event::read()? {
@@ -132,7 +132,7 @@ fn main() -> io::Result<()> {
         }
     }
 
-    execute!(io::stdout(), MoveToColumn(0))?;
+    execute!(io::stderr(), MoveToColumn(0))?;
     disable_raw_mode()?;
     Ok(())
 }
