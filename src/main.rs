@@ -1,5 +1,5 @@
 use crossterm::{
-    cursor::{MoveTo, MoveToColumn},
+    cursor::{MoveDown, MoveTo, MoveToColumn},
     event::{self, Event, KeyCode, KeyEvent},
     execute,
     terminal::{Clear, ClearType, size},
@@ -24,6 +24,7 @@ fn main() -> io::Result<()> {
 
     let mut query = String::new();
     let mut query_change = false;
+    let ansi_color_len = "\x1b[1;31m\x1b[0m".len();
 
     let mut matches: Vec<(usize, (String, u32))> = all_lines
         .iter()
@@ -36,11 +37,12 @@ fn main() -> io::Result<()> {
     'main_loop: loop {
         let (width, height) = size()?;
         // clear and reset cursor
+        // TODO move cursor to after query
         execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0))?;
 
-        println!("{}", query);
-        execute!(io::stdout(), MoveToColumn(0))?;
-        println!("Press 'Esc' to quit | {}", width);
+        print!("{}", query);
+        execute!(io::stdout(), MoveToColumn(0), MoveDown(1))?;
+        println!("Press 'Esc' to quit | {} | {}", width, ansi_color_len);
         execute!(io::stdout(), MoveToColumn(0))?;
         println!("{}", "-".repeat(width as usize));
         execute!(io::stdout(), MoveToColumn(0))?;
@@ -58,19 +60,30 @@ fn main() -> io::Result<()> {
         }
 
         matches.sort_by_key(|(_num, val)| val.1);
+        let max_line_len: usize = matches
+            .iter()
+            .map(|f| f.1.0.len())
+            .max()
+            .map_or(String::new(), |n| n.to_string())
+            .len();
 
         for (num, (line, _score)) in matches.iter() {
-            let display_line = if line.len() + 8 * query.len()
-                > (width as usize).saturating_sub(5)
-            {
-                line.chars()
-                    .take((width as usize).saturating_sub(5))
-                    .collect::<String>()
-                    + "..."
-            } else {
-                line.to_string()
-            };
-            println!("{:2}: {}", num + 1, display_line);
+            let display_line =
+                if line.len() - ansi_color_len * query.len() > (width as usize).saturating_sub(3) {
+                    line.chars()
+                        .take((width as usize).saturating_sub(5))
+                        .collect::<String>()
+                        + "..."
+                        + "\x1b[0m"
+                } else {
+                    line.to_string() + "\x1b[0m"
+                };
+            println!(
+                "{:>width$}: {}",
+                num + 1,
+                display_line,
+                width = max_line_len
+            );
             execute!(io::stdout(), MoveToColumn(0))?;
         }
 
@@ -102,6 +115,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
+/// Fuzzy match run on a per line basis
 fn fuzzy_match(pattern: &str, text: &str) -> Option<(String, u32)> {
     if pattern.is_empty() {
         return Some((text.to_string(), 0));
@@ -115,11 +129,7 @@ fn fuzzy_match(pattern: &str, text: &str) -> Option<(String, u32)> {
         .chars()
         .enumerate()
         .filter_map(|(i, c)| {
-            if c == pattern
-                .chars()
-                .nth(0)
-                .expect("Already checked empty!")
-            {
+            if c == pattern.chars().next().expect("Already checked empty!") {
                 Some(i)
             } else {
                 None
