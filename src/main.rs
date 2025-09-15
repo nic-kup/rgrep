@@ -6,7 +6,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 use std::fs;
-use std::io;
+use std::io::{self, IsTerminal};
 
 fn main() -> io::Result<()> {
     // unsafe {
@@ -135,6 +135,10 @@ fn main() -> io::Result<()> {
     execute!(io::stderr(), MoveToColumn(0))?;
     disable_raw_mode()?;
     Ok(())
+}
+
+fn is_interactive() -> bool {
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 /// Fuzzy match run on a per line basis
