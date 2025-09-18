@@ -1,6 +1,6 @@
 use rgrep::run;
 use std::fs;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, IsTerminal};
 
 fn main() -> io::Result<()> {
     let filename = std::env::args().nth(1);
@@ -11,10 +11,14 @@ fn main() -> io::Result<()> {
             Ok(contents.lines().map(|s| s.to_string()).collect())
         }
         None => {
-            let stdin = io::stdin();
-            let lines: Result<Vec<String>, _> =
-                stdin.lock().lines().collect();
-            lines
+            if io::stdin().is_terminal() {
+                eprintln!("Error: No input provided.");
+                std::process::exit(1);
+            } else {
+                let stdin = io::stdin();
+                let lines: Result<Vec<String>, _> = stdin.lock().lines().collect();
+                lines
+            }
         }
     };
 

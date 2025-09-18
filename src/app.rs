@@ -1,24 +1,30 @@
 use crate::fuzzy_match;
-use crossterm::{
-    cursor::{MoveDown, MoveTo, MoveToColumn},
-    event::{self, Event, KeyCode, KeyEvent},
-    execute,
-    terminal::{Clear, ClearType, size},
-    terminal::{disable_raw_mode, enable_raw_mode},
-};
-use std::io;
+use std::io::{self, IsTerminal, Write};
+use termion::event::Key;
+use termion::input::TermRead;
+use termion::raw::IntoRawMode;
+use termion::{clear, cursor, terminal_size};
 
 pub fn run(all_lines: Vec<String>) -> std::io::Result<()> {
-    let (_width, height) = size()?;
+    let (_width, height) = terminal_size()?;
 
-    execute!(io::stderr(), MoveToColumn(0))?;
+    let _stdout = if io::stdout().is_terminal() {
+        Some(io::stdout().into_raw_mode()?)
+    } else {
+        None
+    };
 
-    enable_raw_mode()?;
+    #[cfg(unix)]
+    let tty = std::fs::File::open("/dev/tty")?;
+
+    #[cfg(windows)]
+    let tty = std::fs::File::open("CONIN$")?;
+
+    let mut keys = tty.keys();
 
     let mut query = String::new();
     let mut query_change = false;
     let ansi_color_len = "\x1b[1;31m\x1b[0m".len();
-
     let mut selected_index: usize = 0;
 
     let mut matches: Vec<(usize, (String, u32))> = all_lines
@@ -30,20 +36,19 @@ pub fn run(all_lines: Vec<String>) -> std::io::Result<()> {
         .collect();
 
     'main_loop: loop {
-        let (width, height) = size()?;
+        let (width, height) = terminal_size()?;
+        //
         // clear and reset cursor
         // TODO move cursor to after query
-        execute!(io::stderr(), Clear(ClearType::All), MoveTo(0, 0))?;
+        eprint!("{}{}", clear::All, cursor::Goto(1, 1));
 
         eprint!("{}", query);
-        execute!(io::stderr(), MoveToColumn(0), MoveDown(1))?;
-        eprintln!(
-            "Press 'Esc' to quit | {} | {}",
-            width, ansi_color_len
-        );
-        execute!(io::stderr(), MoveToColumn(0))?;
+
+        eprint!("{}", cursor::Goto(1, 2));
+        eprintln!("Press 'Esc' to quit | {} | {}", width, ansi_color_len);
+
+        eprint!("{}", cursor::Goto(1, 3));
         eprintln!("{}", "-".repeat(width as usize));
-        execute!(io::stderr(), MoveToColumn(0))?;
 
         if query_change {
             matches = all_lines
@@ -59,6 +64,7 @@ pub fn run(all_lines: Vec<String>) -> std::io::Result<()> {
         }
 
         matches.sort_by_key(|(_num, val)| val.1);
+
         let max_line_len: usize = matches
             .iter()
             .map(|f| f.1.0.len())
@@ -67,20 +73,20 @@ pub fn run(all_lines: Vec<String>) -> std::io::Result<()> {
             .len();
 
         for (i, (num, (line, _score))) in matches.iter().enumerate() {
-            let prefix =
-                if i == selected_index { "-> " } else { "   " };
-            let display_line = if line.len()
-                - ansi_color_len * query.len()
-                > (width as usize).saturating_sub(3)
-            {
-                line.chars()
-                    .take((width as usize).saturating_sub(5))
-                    .collect::<String>()
-                    + "..."
-                    + "\x1b[0m"
-            } else {
-                line.to_string() + "\x1b[0m"
-            };
+            eprint!("{}", cursor::Goto(1, (4 + i) as u16));
+
+            let prefix = if i == selected_index { "-> " } else { "   " };
+
+            let display_line =
+                if line.len() - ansi_color_len * query.len() > (width as usize).saturating_sub(3) {
+                    line.chars()
+                        .take((width as usize).saturating_sub(5))
+                        .collect::<String>()
+                        + "..."
+                        + "\x1b[0m"
+                } else {
+                    line.to_string() + "\x1b[0m"
+                };
             eprintln!(
                 "{}{:>width$}: {}",
                 prefix,
@@ -88,52 +94,55 @@ pub fn run(all_lines: Vec<String>) -> std::io::Result<()> {
                 display_line,
                 width = max_line_len
             );
-            execute!(io::stderr(), MoveToColumn(0))?;
         }
 
         if matches.is_empty() && !query.is_empty() {
+            eprint!("{}", cursor::Goto(1, 4));
             eprintln!("No matches found");
-            execute!(io::stderr(), MoveToColumn(0))?;
         }
 
-        if let Event::Key(KeyEvent { code, .. }) = event::read()? {
-            match code {
-                KeyCode::Esc => {
+        eprint!("{}", cursor::Goto((query.len() + 1) as u16, 1));
+        io::stdout().flush()?;
+
+        match keys.next() {
+            Some(Ok(key)) => match key {
+                Key::Esc => {
                     break 'main_loop;
                 }
-                KeyCode::Char(c) => {
-                    query_change = true;
-                    query.push(c);
+                Key::Char(c) => {
+                    if c == '\n' {
+                        if !matches.is_empty() {
+                            let (_line_num, (line, _score)) = &matches[selected_index];
+                            println!("{}{}", clear::All, cursor::Goto(1, 1));
+                            println!("{}", line);
+                            break 'main_loop;
+                        }
+                    } else {
+                        query_change = true;
+                        query.push(c);
+                    }
                 }
-                KeyCode::Backspace => {
+                Key::Backspace => {
                     query_change = true;
                     query.pop();
                 }
-                KeyCode::Up => {
+                Key::Up => {
                     if selected_index > 0 {
-                        selected_index =
-                            selected_index.saturating_sub(1);
+                        selected_index = selected_index.saturating_sub(1);
                     }
                 }
-                KeyCode::Down => {
+                Key::Down => {
                     if selected_index + 1 < matches.len() {
                         selected_index += 1;
                     }
                 }
-                KeyCode::Enter => {
-                    if !matches.is_empty() {
-                        let (_line_num, (line, _score)) =
-                            &matches[selected_index];
-                        println!("{}", line);
-                        break 'main_loop;
-                    }
-                }
                 _ => {}
-            }
+            },
+            Some(Err(e)) => return Err(e),
+            None => {}
         }
     }
 
-    execute!(io::stderr(), MoveToColumn(0))?;
-    disable_raw_mode()?;
+    println!("{}{}", clear::All, cursor::Goto(1, 1));
     Ok(())
 }
